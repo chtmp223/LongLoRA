@@ -8,11 +8,12 @@ import transformers
 from peft import PeftModel
 from transformers import GenerationConfig, TextStreamer
 from llama_attn_replace import replace_llama_attn
+import torch.nn.functional as F
 
 PROMPT_DICT = {
     "prompt_no_input": (
-        "Below is an instruction that describes a task. "
-        "Write a response that appropriately completes the request.\n\n"
+#        "Below is an instruction that describes a task. "
+ #       "Write a response that appropriately completes the request.\n\n"
         "### Instruction:\n{instruction}\n\n### Response:"
     ),
     "prompt_no_input_llama2": (
@@ -27,7 +28,6 @@ PROMPT_DICT = {
 def parse_config():
     parser = argparse.ArgumentParser(description='arg parser')
     parser.add_argument('--material', type=str, default="")
-    parser.add_argument('--question', type=str, default="")
     parser.add_argument('--base_model', type=str, default="/data1/pretrained-models/llama-7b-hf")
     parser.add_argument('--cache_dir', type=str, default="./cache")
     parser.add_argument('--context_size', type=int, default=-1, help='context size during fine-tuning')
@@ -55,19 +55,33 @@ def build_generator(
 
         streamer = TextStreamer(tokenizer)
         
+        # Enable output_scores to get logits
         output = model.generate(
             **inputs,
             max_new_tokens=max_gen_len,
             temperature=temperature,
             top_p=top_p,
             use_cache=use_cache,
+            output_scores=True,  # This will return logits
+            return_dict_in_generate=True,  # Ensures output is returned in a dict
             streamer=streamer,
+            do_sample=False # Change to True to use temperature and top_p
         )
         
-        out = tokenizer.decode(output[0], skip_special_tokens=True)
+        # Decode the generated ids to tokens
+        decoded_output = [tokenizer.decode(g, skip_special_tokens=True) for g in output.sequences]
+        token_log_probs = []
 
-        out = out.split(prompt.lstrip("<s>"))[1].strip()
-        return out
+        # Calculate log probabilities from logits directly
+        for i, logits in enumerate(output.scores):
+            log_probs = torch.nn.functional.log_softmax(logits, dim=-1)  # Compute log probabilities directly from logits
+            top_i = output.sequences[0][i+1]  # Get the generated token id at each step
+            log_prob = log_probs[0][top_i].item()  # Get the log probability of the generated token
+            token_log_probs.append((tokenizer.decode([top_i]), log_prob))
+        
+        print(decoded_output, token_log_probs)
+
+        return decoded_output, token_log_probs
 
     return response
 
@@ -113,7 +127,7 @@ def main(args):
 
     material = read_txt_file(args.material)
     prompt_no_input = PROMPT_DICT["prompt_llama2"]
-    prompt = prompt_no_input.format_map({"instruction": material + "\n%s"%args.question})
+    prompt = prompt_no_input.format_map({"instruction": material})
 
     output = respond(prompt=prompt)
 

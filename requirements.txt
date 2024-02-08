@@ -1,4 +1,4 @@
-numpy>=1.26.0
+numpy
 rouge_score>=0.1.2
 fire>=0.5.0
 # openai
@@ -15,6 +15,6 @@ peft>=0.5.0
 # gradio
 einops>=0.7.0
 bitsandbytes==0.41.1
-scipy>=1.11.3
+scipy
 protobuf>=4.24.4
 torchmetrics>=1.2.0
